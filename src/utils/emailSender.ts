@@ -99,7 +99,7 @@ const sendEmail = async (
       return
     } catch (error) {
       console.error('Error sending email via SendGrid:', error)
-      throw error
+      console.warn('Falling back to SMTP transport after SendGrid failure.')
     }
   }
 

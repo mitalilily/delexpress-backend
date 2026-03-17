@@ -120,6 +120,20 @@ app.use(
   }),
 )
 
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'DelExpress backend',
+  })
+})
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'DelExpress backend',
+  })
+})
+
 // Shopify webhooks require raw body for HMAC verification
 app.post('/api/webhook/shopify/orders', express.raw({ type: 'application/json' }), shopifyOrderWebhookController)
 

@@ -11,8 +11,8 @@ console.log('node env', env)
 // Load correct .env file
 dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 
-// Use PORT from env or fallback
-const PORT = process.env.PORT || 4000
+// Render provides PORT as a string env var, so coerce it to a real TCP port number.
+const PORT = Number(process.env.PORT) || 5002
 
 // Test database connection before starting server
 async function startServer() {
@@ -28,7 +28,7 @@ async function startServer() {
   // Default Node.js server timeout is 2 minutes (120000ms)
   server.timeout = 210000 // 3.5 minutes
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     const url = env === 'production' ? `https://api.DelExpress.in` : `http://localhost:${PORT}`
     console.log(`🚀 Server running on port ${PORT} in ${env} mode at ${url}`)
   })

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*",
+    "../courier-cart-client/src/hooks/useRazorpayScript.ts"
+  ], // ✅ only compile your app code
+"exclude": [
+    "drizzle.config.ts",
+    "drizzle",
+    "src/drizzle",
+    "src/drizzle/migrations",
+    "node_modules",
+    "dist"
+  ]
+}

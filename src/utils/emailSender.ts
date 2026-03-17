@@ -1,0 +1,426 @@
+// utils/emailSender.ts
+import dotenv from 'dotenv'
+import fs from 'fs'
+import nodemailer from 'nodemailer'
+import path from 'path'
+
+// Load correct .env based on NODE_ENV
+const env = process.env.NODE_ENV || 'development'
+dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
+
+const EMAIL_FROM = process.env.EMAIL_FROM!
+const GOOGLE_SMTP_USER = process.env.GOOGLE_SMTP_USER || EMAIL_FROM
+const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
+const SMTP_HOST = process.env.SMTP_HOST
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true'
+
+type AttachmentInput = {
+  /** local file path OR Buffer */
+  path?: string
+  buffer?: Buffer
+  filename: string
+  mimeType?: string
+}
+
+// Create SMTP transporter (Hostinger/custom SMTP if provided, else Gmail service)
+const createTransporter = () => {
+  if (!GOOGLE_SMTP_PASSWORD) {
+    console.warn('Google SMTP password not configured. Email not sent.')
+    return null
+  }
+
+  if (SMTP_HOST) {
+    return nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: {
+        user: GOOGLE_SMTP_USER,
+        pass: GOOGLE_SMTP_PASSWORD,
+      },
+    })
+  }
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: GOOGLE_SMTP_USER,
+      pass: GOOGLE_SMTP_PASSWORD, // Use App Password for Gmail
+    },
+  })
+}
+
+/**
+ * Low-level sendEmail supporting optional attachments
+ */
+const sendEmail = async (
+  to: string,
+  subject: string,
+  htmlContent: string,
+  attachments?: AttachmentInput[],
+) => {
+  const transporter = createTransporter()
+  if (!transporter) {
+    console.warn('Email transporter not configured. Email not sent.')
+    return
+  }
+
+  const mailOptions: any = {
+    from: `"DelExpress" <${EMAIL_FROM}>`,
+    to,
+    subject,
+    html: htmlContent,
+  }
+
+  if (attachments && attachments.length) {
+    mailOptions.attachments = await Promise.all(
+      attachments.map(async (a) => {
+        let buffer: Buffer
+        if (a.buffer) buffer = a.buffer
+        else if (a.path) buffer = fs.readFileSync(a.path)
+        else throw new Error('Attachment must have path or buffer')
+
+        return {
+          filename: a.filename,
+          content: buffer,
+          contentType: a.mimeType,
+        }
+      }),
+    )
+  }
+
+  try {
+    const info = await transporter.sendMail(mailOptions)
+    console.log('Email sent successfully:', info.messageId)
+  } catch (error) {
+    console.error('Error sending email:', error)
+    throw error
+  }
+}
+
+// Login / verification Email for OTP-based auth
+export const sendVerificationEmail = async (to: string, token: string) => {
+  const html = `
+    <div style="
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      max-width: 600px;
+      margin: 32px auto;
+      padding: 32px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background-color: #ffffff;
+      color: #111827;
+    ">
+      <h2 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 600;">
+        Sign in to DelExpress
+      </h2>
+
+      <p style="margin: 0 0 20px 0; font-size: 14px; color: #4b5563; line-height: 1.6;">
+        We received a request to sign in to your DelExpress account.  
+        Please use the one-time verification code below to continue.
+      </p>
+
+      <div style="margin: 28px 0; text-align: center;">
+        <span style="
+          display: inline-block;
+          padding: 14px 28px;
+          font-size: 26px;
+          font-weight: 700;
+          background-color: #2563eb;
+          color: #ffffff;
+          border-radius: 8px;
+          letter-spacing: 6px;
+        ">
+          ${token}
+        </span>
+      </div>
+
+      <p style="margin: 0 0 12px 0; font-size: 13px; color: #4b5563;">
+        This code will expire in <strong>6 minutes</strong> and can be used only once.
+      </p>
+
+      <p style="margin: 0 0 24px 0; font-size: 13px; color: #6b7280; line-height: 1.6;">
+        If you did not attempt to sign in, you can safely ignore this email.
+        Your account will remain secure unless this code is entered.
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+
+      <p style="margin: 0; font-size: 12px; color: #9ca3af;">
+        © ${new Date().getFullYear()} DelExpress. All rights reserved.
+      </p>
+    </div>
+  `
+
+  await sendEmail(to, 'Your DelExpress verification code', html)
+}
+
+// Employee Credentials Email
+export const sendEmployeeCredentials = async (
+  to: string,
+  email: string,
+  password: string,
+  createdBy: string, // name or email of the seller/admin
+) => {
+  const html = `
+    <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: auto; padding: 32px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #fafafa;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: #1e293b; margin: 0;">Welcome to <span style="color:#2563eb;">DelExpress</span> 🚀</h2>
+        <p style="font-size: 15px; color: #64748b; margin-top: 8px;">Your employee account has been created successfully.</p>
+      </div>
+
+      <div style="background: #fff; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
+        <p style="font-size: 16px; color: #334155; margin: 0 0 12px 0;">
+          An account has been created for you by <strong>${createdBy}</strong>.
+        </p>
+        <p style="font-size: 16px; color: #334155; margin: 0 0 12px 0;">Here are your login credentials:</p>
+        <table style="width: 100%; font-size: 15px; color: #1e293b; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px; font-weight: bold; width: 40%;">Email</td>
+            <td style="padding: 8px; background: #f9fafb; border-radius: 4px;">${email}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; font-weight: bold;">Password</td>
+            <td style="padding: 8px; background: #f9fafb; border-radius: 4px;">${password}</td>
+          </tr>
+        </table>
+      </div>
+
+      <p style="font-size: 14px; color: #64748b; margin-top: 28px; text-align: center;">
+        You can now log in to your DelExpress account using these credentials.<br/>
+        If you face any issues, please contact your administrator.
+      </p>
+
+      <div style="text-align: center; margin-top: 32px; font-size: 13px; color: #94a3b8;">
+        — The DelExpress Team
+      </div>
+    </div>
+  `
+
+  await sendEmail(to, 'Your DelExpress Employee Account', html)
+}
+const escapeHtml = (unsafe: string) =>
+  unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+export const sendTempPasswordEmail = async (to: string, tempPassword: string) => {
+  const safePassword = escapeHtml(tempPassword)
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width:600px; margin:auto; padding:32px; border:1px solid #e5e7eb; border-radius:12px; background-color:#f9fafb;">
+      <div style="text-align:center; margin-bottom:24px;">
+        <h2 style="color:#1e293b; margin:0;">DelExpress Account Password Reset</h2>
+        <p style="font-size:15px; color:#64748b; margin-top:8px;">
+          Your account password has been reset by our team.
+        </p>
+      </div>
+
+      <div style="background:#fff; padding:20px; border-radius:8px; border:1px solid #e5e7eb; text-align:center;">
+        <p style="font-size:16px; color:#334155; margin-bottom:16px;">
+          Here is your temporary password:
+        </p>
+        <span style="display:inline-block; padding:12px 24px; font-size:20px; font-weight:bold; color:#ffffff; background-color:#2563eb; border-radius:6px; letter-spacing:1px;">
+          ${safePassword}
+        </span>
+        <p style="font-size:14px; color:#64748b; margin-top:16px;">
+          Use this password to log in and change it immediately.
+        </p>
+      </div>
+
+      <p style="font-size:13px; color:#94a3b8; margin-top:28px; text-align:center;">
+        If you did not request this, please contact our support immediately.<br/>
+        — The DelExpress Team
+      </p>
+    </div>
+  `
+
+  await sendEmail(to, 'Your Temporary DelExpress Password', html)
+}
+
+export const sendInvoiceReadyEmail = async (opts: {
+  to: string
+  sellerName?: string
+  invoiceNo: string
+  periodStart: string // e.g. '01 Sep 2025'
+  periodEnd: string
+  totalAmount: string | number
+  pdfUrl?: string // optional public url or local path
+  csvUrl?: string // optional public url or local path
+  attachFiles?: boolean // default false for production
+  preferSignedUrls?: boolean // if true, treat pdfUrl/csvUrl as download links
+}) => {
+  const {
+    to,
+    sellerName,
+    invoiceNo,
+    periodStart,
+    periodEnd,
+    totalAmount,
+    pdfUrl,
+    csvUrl,
+    attachFiles = false,
+    preferSignedUrls = false,
+  } = opts
+
+  const safeSeller = sellerName ? sellerName : 'Seller'
+
+  const html = `
+  <div style="font-family: Arial, sans-serif; max-width:700px; margin:auto; padding:24px; color:#111">
+    <h2 style="margin-bottom: 8px;">Your invoice is ready — ${invoiceNo}</h2>
+    <p style="color:#555; margin-top:0;">Hello ${safeSeller},</p>
+    <p style="color:#555">Your invoice for the period <strong>${periodStart}</strong> — <strong>${periodEnd}</strong> has been generated.</p>
+
+    <table style="width:100%; margin-top:12px; border-collapse: collapse;">
+      <tr>
+        <td style="padding:8px; font-weight:600; width:40%;">Invoice No</td>
+        <td style="padding:8px;">${invoiceNo}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px; font-weight:600;">Period</td>
+        <td style="padding:8px;">${periodStart} — ${periodEnd}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px; font-weight:600;">Amount (GST inclusive)</td>
+        <td style="padding:8px;">₹${Number(totalAmount).toFixed(2)}</td>
+      </tr>
+    </table>
+
+    <div style="margin-top:16px;">
+  ${
+    preferSignedUrls && (pdfUrl || csvUrl)
+      ? `<p style="margin-bottom:8px;">Download files:</p>
+       ${pdfUrl ? `<p><a href="${pdfUrl}">Download PDF Invoice</a></p>` : ''}
+       ${csvUrl ? `<p><a href="${csvUrl}">Download CSV breakdown</a></p>` : ''}`
+      : `<p style="color:#555; margin-bottom:8px;">You can download the invoice files attached to this email.</p>`
+  }
+    </div>
+
+    <p style="color:#777; margin-top:20px; font-size:13px;">
+      If you have any questions or dispute an item on the invoice, please contact support or use the “raise dispute” option in your seller dashboard.
+    </p>
+
+    <div style="margin-top:22px; font-size:12px; color:#999;">
+      — DelExpress Team
+    </div>
+  </div>
+  `
+
+  // If attachFiles true and pdfUrl/csvUrl point to local files, attach them
+  let attachments: AttachmentInput[] | undefined = undefined
+  if (attachFiles) {
+    attachments = []
+    if (pdfUrl && !preferSignedUrls) {
+      if (fs.existsSync(pdfUrl)) {
+        attachments.push({ path: pdfUrl, filename: `${invoiceNo}.pdf` })
+      }
+    }
+    if (csvUrl && !preferSignedUrls) {
+      if (fs.existsSync(csvUrl)) {
+        attachments.push({ path: csvUrl, filename: `${invoiceNo}.csv` })
+      }
+    }
+  }
+
+  await sendEmail(to, `Your Invoice ${invoiceNo} is ready`, html, attachments)
+}
+
+export const sendInvoiceReminderEmail = async (opts: {
+  to: string
+  invoiceNo: string
+  amount: number | string
+  pdfUrl?: string
+  csvUrl?: string
+}) => {
+  const { to, invoiceNo, amount, pdfUrl, csvUrl } = opts
+
+  const html = `
+  <div style="font-family: Arial, sans-serif; max-width:700px; margin:auto; padding:24px; color:#111">
+    <h2 style="margin-bottom: 8px; color: #dc2626;">Payment Reminder — Invoice ${invoiceNo}</h2>
+    <p style="color:#555; margin-top:0;">Hello,</p>
+    <p style="color:#555">This is a friendly reminder that your invoice <strong>${invoiceNo}</strong> with an outstanding amount of <strong>₹${Number(
+    amount,
+  ).toFixed(2)}</strong> is still pending payment.</p>
+
+    <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; margin: 20px 0; border-radius: 4px;">
+      <p style="margin: 0; font-weight: 600; color: #991b1b;">Outstanding Amount: ₹${Number(
+        amount,
+      ).toFixed(2)}</p>
+    </div>
+
+    <div style="margin-top:16px;">
+      ${
+        pdfUrl || csvUrl
+          ? `<p style="margin-bottom:8px;">Access your invoice:</p>
+       ${
+         pdfUrl
+           ? `<p><a href="${pdfUrl}" style="color: #2563eb; text-decoration: underline;">Download PDF Invoice</a></p>`
+           : ''
+       }
+       ${
+         csvUrl
+           ? `<p><a href="${csvUrl}" style="color: #2563eb; text-decoration: underline;">Download CSV breakdown</a></p>`
+           : ''
+       }`
+          : ''
+      }
+    </div>
+
+    <p style="color:#777; margin-top:20px; font-size:13px;">
+      Please make the payment at your earliest convenience. If you have already made the payment, please ignore this reminder.
+    </p>
+
+    <p style="color:#777; margin-top:16px; font-size:13px;">
+      If you have any questions or need assistance, please contact our support team.
+    </p>
+
+    <div style="margin-top:22px; font-size:12px; color:#999;">
+      — DelExpress Team
+    </div>
+  </div>
+  `
+
+  await sendEmail(to, `Payment Reminder: Invoice ${invoiceNo}`, html)
+}
+
+export const sendKycStatusEmail = async (opts: {
+  to: string
+  userName?: string
+  status: 'verified' | 'rejected'
+  reason?: string
+}) => {
+  const { to, userName, status, reason } = opts
+  const safeName = userName || 'Merchant'
+  const isApproved = status === 'verified'
+  const subject = isApproved ? 'Your KYC has been approved' : 'Your KYC has been rejected'
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 10px;">
+      <h2 style="margin: 0 0 10px 0; color: ${isApproved ? '#166534' : '#991b1b'};">
+        ${isApproved ? 'KYC Approved' : 'KYC Rejected'}
+      </h2>
+      <p style="margin: 0 0 12px 0; color: #374151;">Hello ${safeName},</p>
+      <p style="margin: 0 0 14px 0; color: #374151;">
+        Your KYC verification status has been updated to:
+        <strong>${isApproved ? 'Approved' : 'Rejected'}</strong>.
+      </p>
+      ${
+        !isApproved && reason
+          ? `<div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px; margin: 14px 0; border-radius: 6px;">
+               <p style="margin: 0; color: #7f1d1d;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>
+             </div>`
+          : ''
+      }
+      <p style="margin: 14px 0 0 0; color: #6b7280; font-size: 13px;">
+        If you need help, please contact support from your dashboard.
+      </p>
+      <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 12px;">— DelExpress Team</p>
+    </div>
+  `
+
+  await sendEmail(to, subject, html)
+}

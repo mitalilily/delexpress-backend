@@ -16,6 +16,7 @@ const SMTP_HOST = process.env.SMTP_HOST
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
 const SMTP_SECURE = process.env.SMTP_SECURE === 'true'
 const SENDGRID_API_KEY = process.env.TWILLIO_SENDGRID_API_KEY
+const SMTP_FROM = GOOGLE_SMTP_USER || EMAIL_FROM
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY)
@@ -41,6 +42,9 @@ const createTransporter = () => {
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_SECURE,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
       auth: {
         user: GOOGLE_SMTP_USER,
         pass: GOOGLE_SMTP_PASSWORD,
@@ -50,6 +54,9 @@ const createTransporter = () => {
 
   return nodemailer.createTransport({
     service: 'gmail',
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
     auth: {
       user: GOOGLE_SMTP_USER,
       pass: GOOGLE_SMTP_PASSWORD, // Use App Password for Gmail
@@ -110,7 +117,8 @@ const sendEmail = async (
   }
 
   const mailOptions: any = {
-    from: `"DelExpress" <${EMAIL_FROM}>`,
+    from: `"DelExpress" <${SMTP_FROM}>`,
+    ...(EMAIL_FROM && EMAIL_FROM !== SMTP_FROM ? { replyTo: EMAIL_FROM } : {}),
     to,
     subject,
     html: htmlContent,

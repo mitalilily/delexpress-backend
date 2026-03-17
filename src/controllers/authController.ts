@@ -33,6 +33,7 @@ const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const allowInlineOtp = process.env.ALLOW_INLINE_OTP === 'true'
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 
@@ -193,7 +194,7 @@ export const requestOtp = async (req: Request, res: Response): Promise<any> => {
 
     return res.json({
       message: 'OTP sent successfully to your email',
-      ...(env === 'development' ? { otp } : {}),
+      ...((env === 'development' || allowInlineOtp) ? { otp } : {}),
     })
   } catch (err) {
     console.error('Error in requestOtp:', err)

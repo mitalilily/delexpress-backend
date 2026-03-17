@@ -1,59 +1,59 @@
 import axios from 'axios'
 import crypto from 'crypto'
 import dotenv from 'dotenv'
-
 import path from 'path'
+import Razorpay from 'razorpay'
 
-// Load correct .env based on NODE_ENV
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
 
-// lib/razorpay.ts
-import Razorpay from 'razorpay'
-
 type RazorpayMode = 'test' | 'live'
 
-/**
- * Pick your mode from either:
- *  1. RAZORPAY_MODE      – explicit override (`"test"` | `"live"`)
- *  2. NODE_ENV === prod  – implicit (treat everything else as test)
- */
 const MODE: RazorpayMode =
   (process.env.RAZORPAY_MODE as RazorpayMode) ??
   (process.env.NODE_ENV === 'production' ? 'live' : 'test')
 
-// A typed map of credentials for each mode.
 const CREDENTIALS: Record<RazorpayMode, { key_id: string; key_secret: string }> = {
   test: {
-    key_id: process.env.RAZORPAY_KEY_ID!,
-    key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    key_id: process.env.RAZORPAY_KEY_ID || '',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || '',
   },
   live: {
-    key_id: process.env.RAZORPAY_KEY_ID_PROD!,
-    key_secret: process.env.RAZORPAY_KEY_SECRET_PROD!,
+    key_id: process.env.RAZORPAY_KEY_ID_PROD || '',
+    key_secret: process.env.RAZORPAY_KEY_SECRET_PROD || '',
   },
 }
 
-// Fail fast if anything is missing – no silent “undefined” bugs in prod!
-if (!CREDENTIALS[MODE].key_id || !CREDENTIALS[MODE].key_secret) {
-  throw new Error(
-    `[Razorpay] Missing env vars for ${MODE.toUpperCase()} mode – check your .env file`,
+export const isRazorpayConfigured = Boolean(CREDENTIALS[MODE].key_id && CREDENTIALS[MODE].key_secret)
+
+if (!isRazorpayConfigured) {
+  console.warn(
+    `[Razorpay] Missing credentials for ${MODE.toUpperCase()} mode. Wallet topups are disabled until env vars are set.`,
   )
 }
 
-/** A single, shared Razorpay instance you can import anywhere in your app. */
-export const razorpay = new Razorpay(CREDENTIALS[MODE])
+export const razorpay = new Razorpay({
+  key_id: CREDENTIALS[MODE].key_id || 'disabled',
+  key_secret: CREDENTIALS[MODE].key_secret || 'disabled',
+})
 
-console.info(
-  `[Razorpay] Initialised in ${MODE.toUpperCase()} mode with key ${CREDENTIALS[MODE].key_id}`,
-)
+if (isRazorpayConfigured) {
+  console.info(
+    `[Razorpay] Initialised in ${MODE.toUpperCase()} mode with key ${CREDENTIALS[MODE].key_id}`,
+  )
+}
 
 export const razorpayApi = axios.create({
   baseURL: 'https://api.razorpay.com/v1',
   auth: {
-    username: MODE === 'live' ? process.env.RAZORPAY_KEY_ID_PROD! : process.env.RAZORPAY_KEY_ID!, // rzp_test_...
+    username:
+      MODE === 'live'
+        ? process.env.RAZORPAY_KEY_ID_PROD || 'disabled'
+        : process.env.RAZORPAY_KEY_ID || 'disabled',
     password:
-      MODE === 'live' ? process.env.RAZORPAY_KEY_SECRET_PROD! : process.env.RAZORPAY_KEY_SECRET!, // your test secret
+      MODE === 'live'
+        ? process.env.RAZORPAY_KEY_SECRET_PROD || 'disabled'
+        : process.env.RAZORPAY_KEY_SECRET || 'disabled',
   },
 })
 
@@ -62,8 +62,8 @@ export function isValidSig(body: string, sig: string) {
     .createHmac(
       'sha256',
       MODE === 'live'
-        ? process.env.RAZORPAY_WEBHOOK_SECRET_PROD!
-        : process.env.RAZORPAY_WEBHOOK_SECRET!,
+        ? process.env.RAZORPAY_WEBHOOK_SECRET_PROD || ''
+        : process.env.RAZORPAY_WEBHOOK_SECRET || '',
     )
     .update(body)
     .digest('hex')

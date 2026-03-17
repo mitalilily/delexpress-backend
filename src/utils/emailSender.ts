@@ -3,6 +3,7 @@ import dotenv from 'dotenv'
 import fs from 'fs'
 import nodemailer from 'nodemailer'
 import path from 'path'
+import sgMail from '@sendgrid/mail'
 
 // Load correct .env based on NODE_ENV
 const env = process.env.NODE_ENV || 'development'
@@ -14,6 +15,11 @@ const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
 const SMTP_HOST = process.env.SMTP_HOST
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
 const SMTP_SECURE = process.env.SMTP_SECURE === 'true'
+const SENDGRID_API_KEY = process.env.TWILLIO_SENDGRID_API_KEY
+
+if (SENDGRID_API_KEY) {
+  sgMail.setApiKey(SENDGRID_API_KEY)
+}
 
 type AttachmentInput = {
   /** local file path OR Buffer */
@@ -60,6 +66,43 @@ const sendEmail = async (
   htmlContent: string,
   attachments?: AttachmentInput[],
 ) => {
+  if (SENDGRID_API_KEY) {
+    try {
+      const sendGridAttachments =
+        attachments && attachments.length
+          ? await Promise.all(
+              attachments.map(async (attachment) => {
+                let buffer: Buffer
+                if (attachment.buffer) buffer = attachment.buffer
+                else if (attachment.path) buffer = fs.readFileSync(attachment.path)
+                else throw new Error('Attachment must have path or buffer')
+
+                return {
+                  content: buffer.toString('base64'),
+                  filename: attachment.filename,
+                  type: attachment.mimeType,
+                  disposition: 'attachment',
+                }
+              }),
+            )
+          : undefined
+
+      await sgMail.send({
+        to,
+        from: `"DelExpress" <${EMAIL_FROM}>`,
+        subject,
+        html: htmlContent,
+        attachments: sendGridAttachments,
+      })
+
+      console.log('Email sent successfully via SendGrid')
+      return
+    } catch (error) {
+      console.error('Error sending email via SendGrid:', error)
+      throw error
+    }
+  }
+
   const transporter = createTransporter()
   if (!transporter) {
     console.warn('Email transporter not configured. Email not sent.')

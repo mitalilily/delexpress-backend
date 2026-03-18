@@ -21,6 +21,7 @@ import path from 'path'
 // Load correct .env based on NODE_ENV
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
+const exposeAuthCodes = process.env.EXPOSE_AUTH_CODES !== 'false'
 
 // Define User and NewUser types for convenience
 export type User = typeof users.$inferSelect
@@ -462,11 +463,19 @@ export const handleEmailVerificationRequest = async (
       await updateUserVerificationToken(normalizedEmail, token, expiresAt, tx)
       shouldSendEmail = true
 
-      if (shouldSendEmail) {
+      if (shouldSendEmail && !exposeAuthCodes) {
         sendVerificationEmail(normalizedEmail, token).catch(console.error)
       }
 
-      return { status: 200, data: { message: 'Verification email sent' } }
+      return {
+        status: 200,
+        data: {
+          message: exposeAuthCodes
+            ? 'Verification code generated'
+            : 'Verification email sent',
+          ...(exposeAuthCodes ? { verificationToken: token } : {}),
+        },
+      }
     }
 
     // BRAND NEW USER
@@ -500,11 +509,17 @@ export const handleEmailVerificationRequest = async (
 
     shouldSendEmail = true
 
-    if (shouldSendEmail) {
+    if (shouldSendEmail && !exposeAuthCodes) {
       sendVerificationEmail(normalizedEmail, token).catch(console.error)
     }
 
-    return { status: 201, data: { message: 'Verification email sent' } }
+    return {
+      status: 201,
+      data: {
+        message: exposeAuthCodes ? 'Verification code generated' : 'Verification email sent',
+        ...(exposeAuthCodes ? { verificationToken: token } : {}),
+      },
+    }
   })
 }
 

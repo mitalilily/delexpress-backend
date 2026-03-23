@@ -1,5 +1,10 @@
 import axios, { AxiosInstance } from 'axios'
-import { EkartConfig, getEffectiveCourierConfig } from '../courierCredentials.service'
+import {
+  DEFAULT_EKART_BASE_URL,
+  EkartConfig,
+  getEffectiveCourierConfig,
+  normalizeEkartBaseUrl,
+} from '../courierCredentials.service'
 import { HttpError } from '../../../utils/classes'
 
 export type EkartServiceabilityDetail = {
@@ -58,8 +63,8 @@ export type EkartTrackResponse = {
 }
 
 export class EkartService {
-  private baseApi: string = process.env.EKART_BASE_API || 'https://app.elite.ekartlogistics.in'
-  private baseAuth: string = process.env.EKART_BASE_AUTH || 'https://app.elite.ekartlogistics.in'
+  private baseApi: string = process.env.EKART_BASE_API || DEFAULT_EKART_BASE_URL
+  private baseAuth: string = process.env.EKART_BASE_AUTH || DEFAULT_EKART_BASE_URL
   private clientId = process.env.EKART_CLIENT_ID || ''
   private username = process.env.EKART_USERNAME || ''
   private password = process.env.EKART_PASSWORD || ''
@@ -68,8 +73,16 @@ export class EkartService {
   private tokenExpiry: number | null = null
   private static cachedConfig: EkartConfig | null | undefined
 
+  static clearCachedConfig() {
+    EkartService.cachedConfig = undefined
+  }
+
   private log(prefix: string, details: any) {
     console.log(`[Ekart] ${prefix}`, details)
+  }
+
+  private normalizeBaseUrl(value?: string | null) {
+    return normalizeEkartBaseUrl(value) || DEFAULT_EKART_BASE_URL
   }
 
   private maskPhone(value: any) {
@@ -395,6 +408,9 @@ export class EkartService {
       this.baseApi = cfg.baseApi || this.baseApi
       this.baseAuth = cfg.baseAuth || this.baseAuth
     }
+
+    this.baseApi = this.normalizeBaseUrl(this.baseApi)
+    this.baseAuth = this.normalizeBaseUrl(this.baseAuth || this.baseApi)
   }
 
   private async getHttp(): Promise<AxiosInstance> {
@@ -418,7 +434,8 @@ export class EkartService {
     this.log('Auth attempt', {
       url,
       clientId: this.clientId,
-      username: this.username,
+      hasUsername: Boolean(this.username),
+      hasPassword: Boolean(this.password),
     })
 
     let res
@@ -452,8 +469,59 @@ export class EkartService {
   // ---------- Serviceability ----------
   async checkPincodeServiceability(pincode: string | number): Promise<EkartServiceabilityDetail> {
     const http = await this.getHttp()
-    const res = await http.get(`/api/v2/serviceability/${pincode}`)
-    return res.data
+    const normalizedPincode = String(pincode ?? '').trim()
+    const candidates = [
+      {
+        label: 'pincode-check-data',
+        method: 'GET',
+        url: `/data/serviceability/check/${normalizedPincode}`,
+        execute: () => http.get(`/data/serviceability/check/${normalizedPincode}`),
+      },
+      {
+        label: 'pincode-check-legacy',
+        method: 'GET',
+        url: `/api/v2/serviceability/${normalizedPincode}`,
+        execute: () => http.get(`/api/v2/serviceability/${normalizedPincode}`),
+      },
+    ]
+
+    const failures: Array<Record<string, any>> = []
+
+    for (const candidate of candidates) {
+      try {
+        const res = await candidate.execute()
+        this.log('Pincode serviceability', {
+          candidate: candidate.label,
+          method: candidate.method,
+          url: candidate.url,
+          pincode: normalizedPincode,
+          status: res.status,
+        })
+        return res.data
+      } catch (err: any) {
+        const status = Number(err?.response?.status || 0)
+        failures.push({
+          candidate: candidate.label,
+          method: candidate.method,
+          url: candidate.url,
+          status: status || null,
+          message: this.extractErrorMessage(err, err?.message || 'Request failed'),
+        })
+
+        if (![404, 405].includes(status)) {
+          throw new HttpError(
+            Number(err?.response?.status || 502),
+            this.extractErrorMessage(err, 'Ekart pincode serviceability failed'),
+          )
+        }
+      }
+    }
+
+    this.log('Pincode serviceability failed', {
+      pincode: normalizedPincode,
+      failures,
+    })
+    throw new HttpError(502, 'Ekart pincode serviceability failed')
   }
 
   async checkPairServiceability(payload: {
@@ -469,12 +537,119 @@ export class EkartService {
     invoiceAmount: string
   }) {
     const http = await this.getHttp()
-    const res = await http.post('/data/v3/serviceability', payload)
-    this.log('Serviceability v3', {
+    const normalizedPaymentType =
+      String(payload.paymentType || 'Prepaid').trim().toLowerCase() === 'cod'
+        ? 'cod'
+        : 'prepaid'
+    const normalizedServiceType = String(payload.serviceType || '').trim()
+    const normalizedRequest = {
+      src: payload.pickupPincode,
+      dest: payload.dropPincode,
+      payment_type: normalizedPaymentType,
+      service_type: normalizedServiceType,
+      weight: payload.weight,
+      length: payload.length,
+      height: payload.height,
+      width: payload.width,
+      invoice_amount: payload.invoiceAmount,
+      cod_amount: payload.codAmount,
+      mps: 1,
+      pickupPincode: payload.pickupPincode,
+      dropPincode: payload.dropPincode,
+      paymentType: payload.paymentType,
+      serviceType: payload.serviceType,
+      invoiceAmount: payload.invoiceAmount,
+      codAmount: payload.codAmount,
+    }
+
+    const candidates = [
+      {
+        label: 'global-serviceability',
+        method: 'GET',
+        url: '/data/global/serviceability',
+        execute: () =>
+          http.get('/data/global/serviceability', {
+            params: {
+              src: normalizedRequest.src,
+              dest: normalizedRequest.dest,
+              payment_type: normalizedRequest.payment_type,
+              service_type: normalizedRequest.service_type,
+              weight: normalizedRequest.weight,
+              mps: normalizedRequest.mps,
+            },
+          }),
+      },
+      {
+        label: 'vendor-serviceability',
+        method: 'POST',
+        url: '/data/serviceability/vendor',
+        execute: () => http.post('/data/serviceability/vendor', normalizedRequest),
+      },
+      {
+        label: 'legacy-serviceability-v3',
+        method: 'POST',
+        url: '/data/v3/serviceability',
+        execute: () => http.post('/data/v3/serviceability', payload),
+      },
+    ]
+
+    let res: any = null
+    let succeededWith: { label: string; method: string; url: string } | null = null
+    const failures: Array<Record<string, any>> = []
+
+    for (const candidate of candidates) {
+      try {
+        res = await candidate.execute()
+        succeededWith = candidate
+        break
+      } catch (err: any) {
+        const status = Number(err?.response?.status || 0)
+        failures.push({
+          candidate: candidate.label,
+          method: candidate.method,
+          url: candidate.url,
+          status: status || null,
+          message: this.extractErrorMessage(err, err?.message || 'Request failed'),
+        })
+
+        if (![404, 405].includes(status)) {
+          this.log('Serviceability failed', {
+            pickup: payload.pickupPincode,
+            drop: payload.dropPincode,
+            candidate: candidate.label,
+            method: candidate.method,
+            url: candidate.url,
+            status: status || null,
+            response: err?.response?.data || null,
+            message: err?.message || err,
+          })
+          throw new HttpError(
+            Number(err?.response?.status || 502),
+            this.extractErrorMessage(err, 'Ekart serviceability failed'),
+          )
+        }
+      }
+    }
+
+    if (!res || !succeededWith) {
+      this.log('Serviceability failed', {
+        pickup: payload.pickupPincode,
+        drop: payload.dropPincode,
+        failures,
+      })
+      const lastFailure = failures[failures.length - 1]
+      throw new HttpError(Number(lastFailure?.status || 502), 'Ekart serviceability failed')
+    }
+
+    this.log('Serviceability response', {
+      candidate: succeededWith.label,
+      method: succeededWith.method,
+      url: succeededWith.url,
       pickup: payload.pickupPincode,
       drop: payload.dropPincode,
       status: res.status,
     })
+
     const raw = res.data
     const records = Array.isArray(raw)
       ? raw

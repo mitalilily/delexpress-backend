@@ -81,6 +81,7 @@ export interface CourierCredentialsMeta {
 }
 
 const KNOWN_PROVIDERS: ServiceProviderId[] = ['delhivery', 'shipway', 'xpressbees', 'ekart']
+export const DEFAULT_EKART_BASE_URL = 'https://app.elite.ekartlogistics.in'
 
 const hasEnvForProviderAndType = (provider: ServiceProviderId, _type: BusinessType): boolean => {
   if (provider === 'delhivery') {
@@ -109,13 +110,26 @@ const hasEnvForProviderAndType = (provider: ServiceProviderId, _type: BusinessTy
 
 const normalize = (val?: string | null) => String(val || '').trim()
 
+export const normalizeEkartBaseUrl = (value?: string | null) => {
+  const normalized = normalize(value).replace(/\/+$/, '')
+  if (!normalized) return ''
+
+  if (/^https?:\/\/api\.ekartlogistics\.com$/i.test(normalized)) {
+    return DEFAULT_EKART_BASE_URL
+  }
+
+  return normalized
+}
+
 const buildConfigFromRow = (provider: ServiceProviderId, row: typeof courierCredentials.$inferSelect) => {
   if (provider === 'ekart') {
+    const ekartBaseUrl = normalizeEkartBaseUrl(row.apiBase)
     const cfg: EkartConfig = {
       clientId: normalize(row.clientId),
       username: normalize(row.username),
       password: normalize(row.password),
-      baseApi: normalize(row.apiBase),
+      baseApi: ekartBaseUrl,
+      baseAuth: ekartBaseUrl,
     }
     return cfg
   }
@@ -169,10 +183,13 @@ export const upsertCourierCredentials = async (
 ): Promise<void> => {
   const { serviceProvider, b2c, b2b } = payload
   const mergedConfig = (b2c?.config ?? b2b?.config ?? null) as Record<string, any> | null
+  const rawApiBase = (mergedConfig?.baseApi as string) || (mergedConfig?.apiBase as string) || ''
+  const normalizedApiBase =
+    serviceProvider === 'ekart' ? normalizeEkartBaseUrl(rawApiBase) : normalize(rawApiBase)
 
   const values: Partial<typeof courierCredentials.$inferInsert> = {
     provider: serviceProvider,
-    apiBase: normalize((mergedConfig?.baseApi as string) || (mergedConfig?.apiBase as string) || ''),
+    apiBase: normalizedApiBase,
     clientName: normalize((mergedConfig?.clientName as string) || ''),
     apiKey: normalize((mergedConfig?.apiKey as string) || (mergedConfig?.apiToken as string) || ''),
     clientId: normalize((mergedConfig?.clientId as string) || ''),

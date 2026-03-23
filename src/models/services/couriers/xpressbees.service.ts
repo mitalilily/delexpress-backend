@@ -56,6 +56,10 @@ export class XpressbeesService {
 
   private static cachedConfig: XpressbeesConfig | null | undefined
 
+  static clearCachedConfig() {
+    XpressbeesService.cachedConfig = undefined
+  }
+
   private log(prefix: string, details: any) {
     console.log(`[Xpressbees] ${prefix}`, details)
   }

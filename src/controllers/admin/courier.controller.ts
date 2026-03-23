@@ -10,6 +10,12 @@ import {
   updateShippingRate,
   upsertShippingRate,
 } from '../../models/services/courierIntegration.service'
+import {
+  DEFAULT_EKART_BASE_URL,
+  normalizeEkartBaseUrl,
+} from '../../models/services/courierCredentials.service'
+import { EkartService } from '../../models/services/couriers/ekart.service'
+import { XpressbeesService } from '../../models/services/couriers/xpressbees.service'
 import { fetchAvailableCouriersWithRatesAdmin } from '../../models/services/shiprocket.service'
 import { courier_credentials } from '../../models/schema/courierCredentials'
 import { couriers } from '../../models/schema/couriers'
@@ -352,7 +358,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       ekart: {
         provider: 'ekart',
-        apiBase: 'https://api.ekartlogistics.com',
+        apiBase: DEFAULT_EKART_BASE_URL,
         clientId: '',
         username: '',
         hasPassword: false,
@@ -388,7 +394,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.ekart = {
           provider: 'ekart',
-          apiBase: row.apiBase || 'https://api.ekartlogistics.com',
+          apiBase: normalizeEkartBaseUrl(row.apiBase) || DEFAULT_EKART_BASE_URL,
           clientId: row.clientId || '',
           username: row.username || '',
           hasPassword,
@@ -495,12 +501,15 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
   const { apiBase, clientId, username, password, webhookSecret } = req.body || {}
 
   try {
-    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
+    const nextApiBase = typeof apiBase === 'string' ? normalizeEkartBaseUrl(apiBase) : undefined
     const nextClientId = typeof clientId === 'string' ? clientId.trim() : undefined
     const nextUsername = typeof username === 'string' ? username.trim() : undefined
     const nextPassword = typeof password === 'string' ? password.trim() : undefined
+    const nextWebhookSecret =
+      typeof webhookSecret === 'string' ? webhookSecret.trim() : undefined
     const hasPassword = typeof nextPassword === 'string' && nextPassword.length > 0
-    const hasWebhookSecret = typeof webhookSecret === 'string' && webhookSecret.length > 0
+    const hasWebhookSecret =
+      typeof nextWebhookSecret === 'string' && nextWebhookSecret.length > 0
 
     const [existing] = await db
       .select({ id: courier_credentials.id })
@@ -513,7 +522,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://api.ekartlogistics.com'
+        updatePayload.apiBase = nextApiBase || DEFAULT_EKART_BASE_URL
       }
       if (nextClientId !== undefined) {
         updatePayload.clientId = nextClientId
@@ -525,7 +534,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatePayload.password = nextPassword
       }
       if (hasWebhookSecret) {
-        updatePayload.webhookSecret = webhookSecret
+        updatePayload.webhookSecret = nextWebhookSecret
       }
 
       await db
@@ -535,15 +544,17 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
     } else {
       await db.insert(courier_credentials).values({
         provider: 'ekart',
-        apiBase: nextApiBase || 'https://api.ekartlogistics.com',
+        apiBase: nextApiBase || DEFAULT_EKART_BASE_URL,
         clientName: '',
         apiKey: '',
         clientId: nextClientId || '',
         username: nextUsername || '',
         password: hasPassword ? nextPassword : '',
-        webhookSecret: hasWebhookSecret ? webhookSecret : '',
+        webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
       })
     }
+
+    EkartService.clearCachedConfig()
 
     const [saved] = await db
       .select({
@@ -562,7 +573,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
       message: 'Ekart credentials updated successfully',
       data: {
         provider: 'ekart',
-        apiBase: saved?.apiBase || 'https://api.ekartlogistics.com',
+        apiBase: normalizeEkartBaseUrl(saved?.apiBase) || DEFAULT_EKART_BASE_URL,
         clientId: saved?.clientId || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
@@ -632,6 +643,8 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
         webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
       })
     }
+
+    XpressbeesService.clearCachedConfig()
 
     const [saved] = await db
       .select({

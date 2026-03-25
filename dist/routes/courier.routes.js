@@ -1,0 +1,24 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/courier.routes.ts
+const express_1 = require("express");
+const courier_controller_1 = require("../controllers/admin/courier.controller");
+const courier_controller_2 = require("../controllers/courier.controller");
+const courierIntegration_controller_1 = require("../controllers/courierIntegration.controller");
+const requireAuth_1 = require("../middlewares/requireAuth");
+const isAdmin_1 = require("../middlewares/isAdmin");
+const router = (0, express_1.Router)();
+router.get('/shipping-rates', requireAuth_1.requireAuth, courier_controller_2.getShippingRatesForUserController);
+router.get('/full-list', requireAuth_1.requireAuth, courier_controller_1.getAllCouriersListController);
+router.get('/list', requireAuth_1.requireAuth, courier_controller_1.getAllCouriersController);
+router.get('/providers', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.getServiceProvidersController);
+router.post('/available-to-guest', courierIntegration_controller_1.fetchAvailableCouriersForGuestController);
+router.post('/available', requireAuth_1.requireAuth, courierIntegration_controller_1.fetchAvailableCouriers);
+router.post('/available-to-user', requireAuth_1.requireAuth, courierIntegration_controller_1.fetchAvailableCouriersToUser);
+router.post('/create', courierIntegration_controller_1.createCourierController);
+router.delete('/delete/:id', courier_controller_1.deleteCourierController);
+router.patch('/status/:id', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateCourierStatusController);
+router.patch('/providers/:serviceProvider', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateServiceProviderStatusController);
+router.get('/', courierIntegration_controller_1.getCouriers);
+router.get('/:id', courierIntegration_controller_1.getCourier);
+exports.default = router;

@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const wallet_controller_1 = require("../controllers/wallet.controller");
+const walletTopup_controller_1 = require("../controllers/walletTopup.controller");
+const razorpay_webhooks_1 = require("../controllers/webhooks/razorpay.webhooks");
+const requireAuth_1 = require("../middlewares/requireAuth");
+const r = (0, express_1.Router)();
+r.post('/wallet/topup', requireAuth_1.requireAuth, walletTopup_controller_1.createTopup);
+r.get('/wallet/transactions', requireAuth_1.requireAuth, wallet_controller_1.getWalletTransactionsController);
+r.post('/wallet/confirm', requireAuth_1.requireAuth, walletTopup_controller_1.confirmFromClient);
+r.post('/wallet/webhook', (0, express_1.raw)({ type: 'application/json' }), razorpay_webhooks_1.razorpayWebhook);
+r.get('/wallet/balance', requireAuth_1.requireAuth, wallet_controller_1.getUserWalletBalance);
+exports.default = r;

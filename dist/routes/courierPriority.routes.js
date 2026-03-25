@@ -1,0 +1,13 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const courierPriority_controller_1 = require("../controllers/courierPriority.controller");
+const requireAuth_1 = require("../middlewares/requireAuth");
+const router = (0, express_1.Router)();
+router.use(requireAuth_1.requireAuth);
+router.post('/courier-priorities', courierPriority_controller_1.CourierPriorityController.create);
+router.get('/courier-priorities/user/', courierPriority_controller_1.CourierPriorityController.getByUser);
+router.get('/:id', courierPriority_controller_1.CourierPriorityController.getOne);
+router.put('/:id', courierPriority_controller_1.CourierPriorityController.update);
+router.delete('/:id', courierPriority_controller_1.CourierPriorityController.delete);
+exports.default = router;

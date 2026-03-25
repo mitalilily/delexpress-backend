@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const order_controller_1 = require("../../controllers/admin/order.controller");
+const isAdmin_1 = require("../../middlewares/isAdmin");
+const requireAuth_1 = require("../../middlewares/requireAuth");
+const router = (0, express_1.Router)();
+router.get('/all-orders', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, order_controller_1.getAllOrdersControllerAdmin);
+router.get('/export', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, order_controller_1.exportOrdersControllerAdmin);
+router.post('/:id/regenerate-documents', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, order_controller_1.regenerateOrderDocumentsControllerAdmin);
+exports.default = router;

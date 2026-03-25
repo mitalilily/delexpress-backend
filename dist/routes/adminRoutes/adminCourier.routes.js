@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// routes/shippingRateRoutes.ts
+const express_1 = require("express");
+const courier_controller_1 = require("../../controllers/admin/courier.controller");
+const isAdmin_1 = require("../../middlewares/isAdmin");
+const requireAuth_1 = require("../../middlewares/requireAuth");
+const upload_1 = require("../../middlewares/upload");
+const router = (0, express_1.Router)();
+router.get('/shipping-rates', courier_controller_1.getShippingRatesController);
+router.get('/list', courier_controller_1.getAllCouriersController);
+router.put('/shipping-rate/:id/:planId', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateShippingRateController);
+router.post('/shipping-rates/import', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, upload_1.upload.single('file'), courier_controller_1.importShippingRatesController);
+router.post('/available', requireAuth_1.requireAuth, courier_controller_1.fetchAvailableCouriersForAdmin);
+router.get('/credentials', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.getCourierCredentialsController);
+router.put('/credentials/delhivery', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateDelhiveryCredentialsController);
+router.put('/credentials/ekart', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateEkartCredentialsController);
+router.put('/credentials/xpressbees', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.updateXpressbeesCredentialsController);
+router.delete('/shipping-rates/:planId/:id', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, courier_controller_1.deleteShippingRateController);
+exports.default = router;

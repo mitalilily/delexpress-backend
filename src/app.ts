@@ -101,24 +101,30 @@ const envOrigins = (process.env.CORS_ORIGINS || '')
 
 const allowedOrigins = [...new Set([...localOrigins, ...envOrigins])]
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      const isPlatformPreview =
-        typeof origin === 'string' &&
-        (origin.endsWith('.netlify.app') ||
-          origin.endsWith('.netlify.live') ||
-          origin.endsWith('.onrender.com'))
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    const isPlatformPreview =
+      typeof origin === 'string' &&
+      (origin.endsWith('.netlify.app') ||
+        origin.endsWith('.netlify.live') ||
+        origin.endsWith('.onrender.com') ||
+        origin.endsWith('.vercel.app'))
 
-      if (!origin || allowedOrigins.includes(origin) || isPlatformPreview) {
-        callback(null, true)
-      } else {
-        callback(new Error(`Not allowed by CORS: ${origin}`))
-      }
-    },
-    credentials: true,
-  }),
-)
+    if (!origin || allowedOrigins.includes(origin) || isPlatformPreview) {
+      callback(null, true)
+      return
+    }
+
+    callback(new Error(`Not allowed by CORS: ${origin}`))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token'],
+  optionsSuccessStatus: 204,
+}
+
+app.use(cors(corsOptions))
+app.options(/.*/, cors(corsOptions))
 
 app.get('/', (_req, res) => {
   res.status(200).json({

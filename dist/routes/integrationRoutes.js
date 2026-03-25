@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const platformIntegration_controller_1 = require("../controllers/platformIntegration.controller");
+const shopify_controller_1 = require("../controllers/shopify.controller");
+const requireAuth_1 = require("../middlewares/requireAuth");
+const PlatformIntegration_service_1 = require("../models/services/PlatformIntegration.service");
+const router = (0, express_1.Router)();
+router.use(requireAuth_1.requireAuth);
+router.post("/shopify-auth", platformIntegration_controller_1.integrateShopifyStore);
+router.post('/shopify/sync-orders', shopify_controller_1.syncShopifyOrdersController);
+router.post("/woocommerce-auth", platformIntegration_controller_1.integrateWooCommerceStore);
+router.post("/magento-auth", platformIntegration_controller_1.integrateMagentoStore);
+router.post("/wix-auth", platformIntegration_controller_1.integrateWixStore);
+router.delete("/stores/:storeId", PlatformIntegration_service_1.deleteStoreById);
+exports.default = router;

@@ -1,0 +1,22 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const requireAuth_1 = require("../middlewares/requireAuth");
+const userProfile_controller_1 = require("../controllers/userProfile.controller");
+const kyc_controller_1 = require("../controllers/kyc.controller");
+const router = express_1.default.Router();
+router.use(requireAuth_1.requireAuth);
+router.get("/user", userProfile_controller_1.getUserProfile);
+router.patch("/", userProfile_controller_1.updateUserProfile);
+router.post("/request-email-verification", userProfile_controller_1.requestEmailVerificationOtp);
+router.post("/verify-profile-email", userProfile_controller_1.verifyProfileEmailOtp);
+router.post("/request-phone-verification", userProfile_controller_1.requestPhoneVerificationOtp);
+router.post("/verify-profile-phone", userProfile_controller_1.verifyProfilePhoneOtp);
+router.post("/kyc", kyc_controller_1.storeKycDetails);
+router.get("/kyc", kyc_controller_1.getKycDetails);
+router.post("/extract-text", kyc_controller_1.extractTextFromImage);
+router.patch("/profile-password", requireAuth_1.requireAuth, userProfile_controller_1.patchChangePassword);
+exports.default = router;

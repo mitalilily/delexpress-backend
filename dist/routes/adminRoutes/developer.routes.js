@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const developer_controller_1 = require("../../controllers/admin/developer.controller");
+const isAdmin_1 = require("../../middlewares/isAdmin");
+const requireAuth_1 = require("../../middlewares/requireAuth");
+const router = (0, express_1.Router)();
+router.get('/error-logs', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, developer_controller_1.getDeveloperErrorLogsController);
+router.patch('/issues/:issueKey', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, developer_controller_1.updateDeveloperIssueStateController);
+router.post('/retry-manifest', requireAuth_1.requireAuth, isAdmin_1.isAdminMiddleware, developer_controller_1.retryDeveloperManifestController);
+exports.default = router;

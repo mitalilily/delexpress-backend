@@ -396,6 +396,58 @@ export class EkartService {
     return fallback
   }
 
+  private isLocationNotRegisteredError(err: any) {
+    const status = Number(err?.response?.status || 0)
+    if (status !== 404) return false
+
+    const errorText = [
+      err?.response?.data?.description,
+      err?.response?.data?.message,
+      err?.response?.data?.code,
+      err?.message,
+    ]
+      .filter((value) => typeof value === 'string')
+      .join(' ')
+      .toLowerCase()
+
+    return (
+      errorText.includes('swift_resource_not_found_exception') &&
+      errorText.includes('location') &&
+      errorText.includes('not registered')
+    )
+  }
+
+  private buildWarehousePayloadFromShipmentPayload(payload: any, fallbackAlias?: string) {
+    const pickup = payload?.pickup || {}
+    const alias = this.sanitizeText(
+      fallbackAlias || payload?.pickup_location?.name || pickup?.warehouse_name || pickup?.name,
+    )
+    const phone = this.sanitizePhoneNumber(pickup?.phone)
+    const lat = Number(pickup?.latitude ?? pickup?.lat)
+    const lon = Number(pickup?.longitude ?? pickup?.lng ?? pickup?.lon)
+
+    return {
+      alias: alias || 'Warehouse',
+      phone: Number(phone || 0),
+      address_line1: this.sanitizeText(pickup?.address || pickup?.address1),
+      address_line2: this.sanitizeText(pickup?.address_2 || pickup?.address2) || null,
+      pincode: this.normalizePin(pickup?.pincode, 0),
+      city: this.sanitizeText(pickup?.city),
+      state: this.sanitizeText(pickup?.state),
+      country: this.sanitizeText(pickup?.country, 'India'),
+      geo: {
+        lat: Number.isFinite(lat) ? lat : 0,
+        lon: Number.isFinite(lon) ? lon : 0,
+      },
+    }
+  }
+
+  private async registerPickupLocationFromShipmentPayload(payload: any, fallbackAlias?: string) {
+    const warehousePayload = this.buildWarehousePayloadFromShipmentPayload(payload, fallbackAlias)
+    await this.createWarehouse(warehousePayload)
+    return warehousePayload.alias
+  }
+
   private async ensureConfigLoaded() {
     if (EkartService.cachedConfig === undefined) {
       EkartService.cachedConfig = await getEffectiveCourierConfig<EkartConfig>('ekart', 'b2c')
@@ -806,6 +858,42 @@ export class EkartService {
       })
       return res.data
     } catch (err: any) {
+      if (this.isLocationNotRegisteredError(err)) {
+        try {
+          const alias = await this.registerPickupLocationFromShipmentPayload(
+            payload,
+            normalizedPayload?.pickup_location?.name,
+          )
+          this.log('Auto-registered missing Ekart pickup location. Retrying shipment create.', {
+            alias,
+            order_number: normalizedPayload?.order_number || null,
+          })
+          const retryRes = await http.put(endpoint, normalizedPayload)
+          this.log('Create shipment response (after location auto-register)', {
+            baseApi: this.baseApi,
+            endpoint,
+            status: retryRes.status,
+            data: retryRes.data,
+          })
+          return retryRes.data
+        } catch (retryErr: any) {
+          this.log('Create shipment retry failed after location auto-register attempt', {
+            baseApi: this.baseApi,
+            endpoint,
+            payload: sanitizedPayload,
+            status: retryErr?.response?.status || null,
+            statusText: retryErr?.response?.statusText || null,
+            response: retryErr?.response?.data || null,
+            message: retryErr?.message || retryErr,
+          })
+
+          throw new HttpError(
+            Number(retryErr?.response?.status || err?.response?.status || 502),
+            this.extractErrorMessage(retryErr, this.extractErrorMessage(err, 'Ekart shipment creation failed')),
+          )
+        }
+      }
+
       this.log('Create shipment failed', {
         baseApi: this.baseApi,
         endpoint,

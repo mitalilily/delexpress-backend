@@ -419,26 +419,40 @@ export class EkartService {
 
   private buildWarehousePayloadFromShipmentPayload(payload: any, fallbackAlias?: string) {
     const pickup = payload?.pickup || {}
-    const alias = this.sanitizeText(
-      fallbackAlias || payload?.pickup_location?.name || pickup?.warehouse_name || pickup?.name,
-    )
     const phone = this.sanitizePhoneNumber(pickup?.phone)
     const lat = Number(pickup?.latitude ?? pickup?.lat)
     const lon = Number(pickup?.longitude ?? pickup?.lng ?? pickup?.lon)
+    const pincode = this.normalizePin(pickup?.pincode, NaN)
+
+    if (!Number.isFinite(pincode) || pincode <= 0) {
+      throw new HttpError(
+        400,
+        'Unable to auto-register Ekart pickup location because pickup pincode is missing or invalid.',
+      )
+    }
+
+    if (!phone) {
+      throw new HttpError(
+        400,
+        'Unable to auto-register Ekart pickup location because pickup phone is missing or invalid.',
+      )
+    }
+
+    const alias =
+      this.sanitizeText(
+        fallbackAlias || payload?.pickup_location?.name || pickup?.warehouse_name || pickup?.name,
+      ) || `Warehouse-${pincode}`
 
     return {
-      alias: alias || 'Warehouse',
-      phone: Number(phone || 0),
+      alias,
+      phone: Number(phone),
       address_line1: this.sanitizeText(pickup?.address || pickup?.address1),
       address_line2: this.sanitizeText(pickup?.address_2 || pickup?.address2) || null,
-      pincode: this.normalizePin(pickup?.pincode, 0),
+      pincode,
       city: this.sanitizeText(pickup?.city),
       state: this.sanitizeText(pickup?.state),
       country: this.sanitizeText(pickup?.country, 'India'),
-      geo: {
-        lat: Number.isFinite(lat) ? lat : 0,
-        lon: Number.isFinite(lon) ? lon : 0,
-      },
+      geo: Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : {},
     }
   }
 
@@ -888,7 +902,7 @@ export class EkartService {
           })
 
           throw new HttpError(
-            Number(retryErr?.response?.status || err?.response?.status || 502),
+            Number(retryErr?.response?.status || 502),
             this.extractErrorMessage(retryErr, this.extractErrorMessage(err, 'Ekart shipment creation failed')),
           )
         }

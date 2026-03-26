@@ -203,6 +203,108 @@ export class EkartService {
     return Number(digits.slice(0, 6))
   }
 
+  private normalizeAlias(value: any) {
+    return String(value ?? '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+  }
+
+  private extractMissingLocationAlias(err: any) {
+    const message = this.extractErrorMessage(err, '')
+    const match = message.match(/Given location ['"]([^'"]+)['"] is not registered with us/i)
+    return match?.[1]?.trim() || null
+  }
+
+  private isAddressRegistrationConflict(err: any) {
+    const message = this.extractErrorMessage(err, '')
+    return /already exists|already registered|duplicate|conflict/i.test(message)
+  }
+
+  private buildAddressRegistrationPayload(alias: any, location: any) {
+    const normalizedAlias = this.sanitizeText(alias)
+    const addressLine1 = this.sanitizeText(location?.address1)
+    const city = this.sanitizeText(location?.city)
+    const state = this.sanitizeText(location?.state)
+    const pincode = this.normalizePin(location?.pincode)
+    const phone = this.sanitizePhoneNumber(location?.phone)
+
+    if (!normalizedAlias || !addressLine1 || !city || !state || !pincode || !phone) {
+      return null
+    }
+
+    return {
+      alias: normalizedAlias,
+      phone,
+      address_line1: addressLine1,
+      address_line2: this.sanitizeText(location?.address2) || null,
+      pincode,
+      city,
+      state,
+      country: 'India',
+    }
+  }
+
+  private async ensureShipmentLocationsRegistered(payload: any, missingAlias?: string | null) {
+    const normalizedMissingAlias = this.normalizeAlias(missingAlias)
+    const candidates = [
+      {
+        kind: 'pickup',
+        alias: payload?.pickup_location?.name,
+        location: payload?.pickup,
+      },
+      {
+        kind: 'return',
+        alias: payload?.return_location?.name,
+        location: payload?.returnAddress,
+      },
+    ]
+
+    let attemptedRegistration = false
+
+    for (const candidate of candidates) {
+      const candidateAlias = this.sanitizeText(candidate.alias)
+      if (!candidateAlias) continue
+
+      if (
+        normalizedMissingAlias &&
+        this.normalizeAlias(candidateAlias) !== normalizedMissingAlias
+      ) {
+        continue
+      }
+
+      const registrationPayload = this.buildAddressRegistrationPayload(
+        missingAlias || candidateAlias,
+        candidate.location,
+      )
+      if (!registrationPayload) continue
+
+      attemptedRegistration = true
+
+      try {
+        const response = await this.addAddress(registrationPayload)
+        this.log('Registered Ekart shipment location', {
+          kind: candidate.kind,
+          alias: registrationPayload.alias,
+          response,
+        })
+      } catch (registrationError: any) {
+        if (this.isAddressRegistrationConflict(registrationError)) {
+          this.log('Ekart shipment location already registered', {
+            kind: candidate.kind,
+            alias: registrationPayload.alias,
+            message: this.extractErrorMessage(registrationError, 'Address already registered'),
+          })
+          continue
+        }
+
+        throw registrationError
+      }
+    }
+
+    return attemptedRegistration
+  }
+
   private buildEkartShipmentPayload(payload: any) {
     const paymentMode =
       String(payload?.payment_type || '').toLowerCase() === 'cod'
@@ -806,6 +908,48 @@ export class EkartService {
       })
       return res.data
     } catch (err: any) {
+      const missingLocationAlias = this.extractMissingLocationAlias(err)
+
+      if (missingLocationAlias) {
+        this.log('Create shipment missing Ekart location', {
+          baseApi: this.baseApi,
+          endpoint,
+          alias: missingLocationAlias,
+          payload: sanitizedPayload,
+        })
+
+        try {
+          const registered = await this.ensureShipmentLocationsRegistered(
+            normalizedPayload,
+            missingLocationAlias,
+          )
+
+          if (registered) {
+            const retryResponse = await http.put(endpoint, normalizedPayload)
+            this.log('Create shipment retry response', {
+              baseApi: this.baseApi,
+              endpoint,
+              alias: missingLocationAlias,
+              status: retryResponse.status,
+              data: retryResponse.data,
+            })
+            return retryResponse.data
+          }
+        } catch (retryPreparationError: any) {
+          this.log('Create shipment retry preparation failed', {
+            baseApi: this.baseApi,
+            endpoint,
+            alias: missingLocationAlias,
+            message:
+              this.extractErrorMessage(
+                retryPreparationError,
+                retryPreparationError?.message || 'Failed to register Ekart location',
+              ) || null,
+            response: retryPreparationError?.response?.data || null,
+          })
+        }
+      }
+
       this.log('Create shipment failed', {
         baseApi: this.baseApi,
         endpoint,

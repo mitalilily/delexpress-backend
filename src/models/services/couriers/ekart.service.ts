@@ -197,6 +197,13 @@ export class EkartService {
     return digits.length <= 10 ? digits : digits.slice(-10)
   }
 
+  private normalizePhoneNumber(value: any, fallback = 0) {
+    const digits = this.sanitizePhoneNumber(value)
+    if (!digits) return fallback
+    const numeric = Number(digits)
+    return Number.isFinite(numeric) ? numeric : fallback
+  }
+
   private normalizePin(value: any, fallback = 0) {
     const digits = String(value ?? '').replace(/\D/g, '')
     if (!digits) return fallback
@@ -403,6 +410,7 @@ export class EkartService {
     const dropContact = {
       name: consigneeName,
       phone: consigneePhone,
+      phoneNumber: this.normalizePhoneNumber(payload?.consignee?.phone),
       address1: this.sanitizeText(payload?.consignee?.address),
       address2: this.sanitizeText(payload?.consignee?.address_2),
       city: this.sanitizeText(payload?.consignee?.city),
@@ -477,7 +485,7 @@ export class EkartService {
         city: dropContact.city,
         state: dropContact.state,
         pin: dropContact.pincode,
-        phone: dropContact.phone,
+        phone: dropContact.phoneNumber,
       },
       return_location: {
         name: this.sanitizeText(
@@ -953,7 +961,7 @@ export class EkartService {
             return retryResponse.data
           }
         } catch (retryPreparationError: any) {
-          this.log('Create shipment retry preparation failed', {
+          this.log('Create shipment retry failed', {
             baseApi: this.baseApi,
             endpoint,
             alias: missingLocationAlias,
@@ -964,6 +972,11 @@ export class EkartService {
               ) || null,
             response: retryPreparationError?.response?.data || null,
           })
+
+          throw new HttpError(
+            Number(retryPreparationError?.response?.status || 502),
+            this.extractErrorMessage(retryPreparationError, 'Ekart shipment retry failed'),
+          )
         }
       }
 

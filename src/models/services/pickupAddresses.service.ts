@@ -3,22 +3,11 @@ import { and, asc, desc, eq, ilike, ne, or, sql } from 'drizzle-orm'
 import { CreatePickupDto, HydratedPickupAddress, UpdatePickupDto } from '../../types/generic.types'
 import { db } from '../client'
 import { addresses, pickupAddresses } from '../schema/pickupAddresses'
-import { DelhiveryService } from './couriers/delhivery.service'
 import { EkartService } from './couriers/ekart.service'
 
 function parseCoordinate(value: string | null | undefined, fallback: number) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function extractCourierErrorMessage(err: any) {
-  return (
-    err?.response?.data?.message ||
-    err?.response?.data?.error?.[0] ||
-    err?.response?.data?.description ||
-    err?.message ||
-    ''
-  )
 }
 
 /**
@@ -85,37 +74,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       })
       .returning()
 
-    // 🚚 Register pickup in Delhivery (best-effort; should not block Ekart/local flows)
-    try {
-      const delhivery = new DelhiveryService()
-      const delhiveryResp = await delhivery.createWarehouse({
-        name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? 'Default Warehouse',
-        registered_name: 'DelExpress',
-        phone: pickupAddr.contactPhone,
-        email: pickupAddr.contactEmail ?? '',
-        address: pickupAddr.addressLine1,
-        city: pickupAddr.city,
-        pin: pickupAddr.pincode.toString(),
-        country: pickupAddr.country ?? 'India',
-        return_address: rtoAddressData.addressLine1 ?? pickupAddr.addressLine1,
-        return_city: rtoAddressData.city ?? pickupAddr.city,
-        return_pin: rtoAddressData.pincode?.toString() ?? pickupAddr.pincode?.toString(),
-        return_state: rtoAddressData.state ?? pickupAddr.state,
-        return_country: 'India',
-      })
-
-      if (!delhiveryResp || delhiveryResp.success === false) {
-        console.error('❌ Delhivery warehouse creation failed:', delhiveryResp)
-        const errorToThrow: any = new Error('Delhivery warehouse registration failed')
-        errorToThrow.code = 'DELHIVERY_WAREHOUSE_GENERAL_ERROR'
-        throw errorToThrow
-      }
-
-      console.log(`✅ Delhivery warehouse registered: ${pickupAddr.addressNickname}`)
-    } catch (err: any) {
-      const rawError = err?.response?.data ?? err
-      console.warn('⚠️ Delhivery warehouse registration failed; continuing with local/Ekart save.', rawError)
-    }
+    console.log('ℹ️ Skipping Delhivery pickup sync; Ekart is the active pickup integration flow.')
 
     // 🔹 Register pickup in Ekart (mirror our warehouse)
     try {
@@ -252,59 +211,10 @@ export async function updatePickupAddressService(
         }
       }
 
-      // 🟢 Sync with Delhivery (best-effort only; should not block Ekart/local flows)
-      try {
-        if (updatedPickup) {
-          const delhivery = new DelhiveryService()
-          const warehouseName =
-            updatedPickup?.addressNickname ?? updatedPickup?.contactName ?? 'Default Warehouse'
-          const delhiveryPayload = {
-            name: warehouseName,
-            address: updatedPickup?.addressLine1,
-            pin: updatedPickup?.pincode?.toString(),
-            phone: updatedPickup?.contactPhone,
-          }
-          let delhiveryResp = await delhivery.updateWarehouse(delhiveryPayload)
-
-          if (!delhiveryResp || delhiveryResp.success === false) {
-            const responseMessage = extractCourierErrorMessage({ response: { data: delhiveryResp } })
-            if (/warehouse does not exists/i.test(responseMessage)) {
-              const fallbackRto = data.rtoAddress ?? updatedPickup
-              delhiveryResp = await delhivery.createWarehouse({
-                name: warehouseName,
-                registered_name: 'DelExpress',
-                phone: updatedPickup?.contactPhone,
-                email: updatedPickup?.contactEmail ?? '',
-                address: updatedPickup?.addressLine1,
-                city: updatedPickup?.city,
-                pin: updatedPickup?.pincode?.toString(),
-                country: updatedPickup?.country ?? 'India',
-                return_address: fallbackRto?.addressLine1 ?? updatedPickup?.addressLine1,
-                return_city: fallbackRto?.city ?? updatedPickup?.city,
-                return_pin:
-                  fallbackRto?.pincode?.toString() ?? updatedPickup?.pincode?.toString(),
-                return_state: fallbackRto?.state ?? updatedPickup?.state,
-                return_country: fallbackRto?.country ?? updatedPickup?.country ?? 'India',
-              })
-            }
-          }
-
-          if (!delhiveryResp || delhiveryResp.success === false) {
-            console.warn(
-              '⚠️ Failed to sync warehouse in Delhivery; continuing with local pickup update.',
-              delhiveryResp,
-            )
-          } else {
-            console.log(`✅ Warehouse synced in Delhivery: ${updatedPickup?.addressNickname}`)
-          }
-        } else {
-          console.log('ℹ️ No pickup address change detected — skipped Delhivery update.')
-        }
-      } catch (err: any) {
-        console.warn(
-          '⚠️ Delhivery warehouse sync failed during pickup update; continuing with local save.',
-          err?.response?.data || err?.message || err,
-        )
+      if (updatedPickup) {
+        console.log('ℹ️ Skipping Delhivery pickup update sync; Ekart is the active pickup integration flow.')
+      } else {
+        console.log('ℹ️ No pickup address change detected — skipped courier sync.')
       }
 
       return pickup

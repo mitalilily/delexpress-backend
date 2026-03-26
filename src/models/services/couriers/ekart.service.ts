@@ -395,6 +395,13 @@ export class EkartService {
 
     const consigneeName = this.sanitizeText(payload?.consignee?.name, 'Consignee')
     const consigneePhone = this.sanitizePhoneNumber(payload?.consignee?.phone)
+    const consigneeAlternatePhoneRaw = this.sanitizePhoneNumber(
+      payload?.consignee?.alternate_phone ?? payload?.consignee_alternate_phone,
+    )
+    const consigneeAlternatePhone =
+      consigneeAlternatePhoneRaw && consigneeAlternatePhoneRaw !== consigneePhone
+        ? consigneeAlternatePhoneRaw
+        : ''
     const pickupPhone = this.sanitizePhoneNumber(payload?.pickup?.phone)
     const returnPhone = this.sanitizePhoneNumber(payload?.rto?.phone || payload?.pickup?.phone)
 
@@ -460,7 +467,9 @@ export class EkartService {
       seller_gst_amount: totalTaxValue,
       consignee_name: consigneeName,
       consignee_phone: consigneePhone,
-      consignee_alternate_phone: consigneePhone,
+      ...(consigneeAlternatePhone
+        ? { consignee_alternate_phone: consigneeAlternatePhone }
+        : {}),
       consignee_gst_tin: this.sanitizeText(payload?.consignee?.gstin),
       consignee_gst_amount: totalTaxValue,
       integrated_gst_amount: 0,

@@ -440,6 +440,10 @@ export class EkartService {
       payload?.category_of_goods || normalizedItems.map((item: any) => item.name).join(', '),
       'General Merchandise',
     )
+    const packageWeight = this.toNumber(payload?.package_weight, 0.5)
+    const packageLength = this.toNumber(payload?.package_length, 10)
+    const packageBreadth = this.toNumber(payload?.package_breadth, 10)
+    const packageHeight = this.toNumber(payload?.package_height, 10)
 
     return {
       trackingId: payload?.order_number,
@@ -474,6 +478,11 @@ export class EkartService {
       taxable_amount: taxableAmount,
       commodity_value: String(taxableAmount),
       quantity: totalQuantity || 1,
+      weight: packageWeight,
+      length: packageLength,
+      breadth: packageBreadth,
+      width: packageBreadth,
+      height: packageHeight,
       pickup: pickupContact,
       drop: dropContact,
       returnAddress: returnContact,
@@ -499,10 +508,10 @@ export class EkartService {
         ),
       },
       package: {
-        weight: this.toNumber(payload?.package_weight, 0.5),
-        length: this.toNumber(payload?.package_length, 10),
-        breadth: this.toNumber(payload?.package_breadth, 10),
-        height: this.toNumber(payload?.package_height, 10),
+        weight: packageWeight,
+        length: packageLength,
+        breadth: packageBreadth,
+        height: packageHeight,
         items: normalizedItems,
       },
       items: normalizedItems,

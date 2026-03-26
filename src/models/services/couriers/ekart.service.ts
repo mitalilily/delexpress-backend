@@ -415,6 +415,7 @@ export class EkartService {
       address2: this.sanitizeText(payload?.consignee?.address_2),
       city: this.sanitizeText(payload?.consignee?.city),
       state: this.sanitizeText(payload?.consignee?.state),
+      country: this.sanitizeText(payload?.consignee?.country, 'India'),
       pincode: this.normalizePin(payload?.consignee?.pincode),
     }
 
@@ -484,6 +485,7 @@ export class EkartService {
         address: dropContact.address1,
         city: dropContact.city,
         state: dropContact.state,
+        country: dropContact.country,
         pin: dropContact.pincode,
         phone: dropContact.phoneNumber,
       },

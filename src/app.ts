@@ -194,8 +194,24 @@ app.use('/api', ndrRoutes)
 app.use('/api', rtoRoutes)
 app.use('/api/v1', externalApiRoutes)
 // Ekart webhook
-app.post('/api/webhook/ekart', express.json(), ekartWebhookHandler)
-app.post('/api/webhook/ekart/track', express.json(), ekartWebhookHandler)
+app.post(
+  '/api/webhook/ekart',
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf.toString('utf8')
+    },
+  }),
+  ekartWebhookHandler,
+)
+app.post(
+  '/api/webhook/ekart/track',
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf.toString('utf8')
+    },
+  }),
+  ekartWebhookHandler,
+)
 app.post(
   '/api/webhook/xpressbees',
   express.json({

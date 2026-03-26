@@ -1090,12 +1090,53 @@ export async function processDelhiveryDocumentWebhook(
 const mapEkartStatus = (status: string): string => {
   const s = (status || '').toLowerCase()
   if (!s) return 'in_transit'
+  if (s.includes('cancel')) return 'cancelled'
   if (s.includes('delivered')) return s.includes('rto') ? 'rto_delivered' : 'delivered'
+  if (
+    s.includes('ndr') ||
+    s.includes('undelivered') ||
+    s.includes('not delivered') ||
+    s.includes('attempt') ||
+    s.includes('delivery failed') ||
+    s.includes('customer unavailable') ||
+    s.includes('customer not available') ||
+    s.includes('not reachable') ||
+    s.includes('unreachable') ||
+    s.includes('address issue') ||
+    s.includes('address incomplete') ||
+    s.includes('future delivery')
+  ) {
+    return 'ndr'
+  }
   if (s.includes('out for delivery') || s.includes('ofd')) return 'out_for_delivery'
   if (s.includes('pickup') || s.includes('created') || s.includes('manifest')) return 'booked'
-  if (s.includes('ndr') || s.includes('undelivered') || s.includes('not delivered')) return 'ndr'
   if (s.includes('rto')) return 'rto_in_transit'
   return 'in_transit'
+}
+
+const unwrapEkartPayload = (payload: any) => {
+  if (payload?.__provider === 'ekart' && payload?.body) {
+    return payload.body
+  }
+  if (payload?.track_updated && typeof payload.track_updated === 'object') {
+    return {
+      ...payload,
+      ...payload.track_updated,
+      track_updated: payload.track_updated,
+    }
+  }
+  if (payload?.data?.track_updated && typeof payload.data.track_updated === 'object') {
+    return {
+      ...payload,
+      ...payload.data,
+      ...payload.data.track_updated,
+      track_updated: payload.data.track_updated,
+    }
+  }
+  if (payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    return payload.data
+  }
+  return payload
 }
 
 const unwrapXpressbeesPayload = (payload: any) => {
@@ -1334,6 +1375,283 @@ export async function processEkartWebhook(payload: any, tx = db) {
       console.log(`✅ COD remittance created for Ekart order ${order.order_number}`)
     } catch (err) {
       console.error(`❌ Failed to create COD remittance for Ekart order ${order.order_number}:`, err)
+    }
+  }
+
+  return { success: true }
+}
+
+export async function processEkartWebhookNormalized(payload: any, tx = db) {
+  const event = unwrapEkartPayload(payload)
+  const awb =
+    event?.tracking_id ||
+    event?.trackingId ||
+    event?.awb ||
+    event?.waybill ||
+    event?.wbn ||
+    event?.barcodes?.wbn ||
+    payload?.tracking_id ||
+    payload?.trackingId ||
+    payload?.awb ||
+    payload?.waybill ||
+    payload?.wbn ||
+    payload?.barcodes?.wbn ||
+    null
+  const orderRef =
+    event?.order_number ||
+    event?.orderNumber ||
+    event?.order_id ||
+    event?.reference_number ||
+    event?.shipment_id ||
+    payload?.order_number ||
+    payload?.orderNumber ||
+    payload?.order_id ||
+    payload?.reference_number ||
+    payload?.shipment_id ||
+    null
+  const statusRaw =
+    event?.current_status ||
+    event?.status ||
+    event?.status_text ||
+    event?.event ||
+    event?.event_name ||
+    event?.scan_status ||
+    payload?.current_status ||
+    payload?.status ||
+    payload?.status_text ||
+    payload?.event ||
+    payload?.event_name ||
+    ''
+  const remarks =
+    event?.courier_remarks ||
+    event?.remarks ||
+    event?.remark ||
+    event?.message ||
+    event?.description ||
+    event?.reason ||
+    event?.failure_reason ||
+    payload?.courier_remarks ||
+    payload?.remarks ||
+    payload?.remark ||
+    payload?.message ||
+    payload?.description ||
+    payload?.reason ||
+    payload?.failure_reason ||
+    ''
+  const location =
+    event?.current_location ||
+    event?.location ||
+    event?.scan_location ||
+    event?.last_location ||
+    event?.hub_name ||
+    payload?.current_location ||
+    payload?.location ||
+    payload?.scan_location ||
+    payload?.last_location ||
+    payload?.hub_name ||
+    null
+  const attemptNo =
+    event?.attempt_no?.toString?.() ||
+    event?.attemptNo?.toString?.() ||
+    event?.attempts?.toString?.() ||
+    payload?.attempt_no?.toString?.() ||
+    payload?.attemptNo?.toString?.() ||
+    payload?.attempts?.toString?.() ||
+    null
+  const statusEvidence = [statusRaw, remarks].filter(Boolean).join(' | ')
+
+  if (!awb && !orderRef) return { success: false, reason: 'missing_awb' }
+
+  let order
+  if (awb) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.awb_number, String(awb)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx
+      .select()
+      .from(b2c_orders)
+      .where(eq(b2c_orders.order_number, String(orderRef)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.order_id, String(orderRef)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx
+      .select()
+      .from(b2c_orders)
+      .where(eq(b2c_orders.shipment_id, String(orderRef)))
+  }
+
+  if (!order) {
+    console.warn(`No local order found for Ekart AWB ${awb || 'N/A'} ref ${orderRef || 'N/A'}`)
+    return { success: false, reason: 'order_not_found' }
+  }
+
+  const internalStatus = mapEkartStatus(statusEvidence)
+  const statusLower = internalStatus.toLowerCase()
+  const statusText = statusRaw || internalStatus
+
+  const updateData: any = {
+    order_status: internalStatus,
+    delivery_location: location,
+    delivery_message: remarks || null,
+    updated_at: new Date(),
+  }
+
+  const courierCost = event?.courier_cost ?? event?.freight_charges ?? payload?.courier_cost
+  const chargedWeight = event?.charged_weight ?? event?.chargeable_weight ?? payload?.charged_weight
+  const volumetricWeight = event?.volumetric_weight ?? payload?.volumetric_weight
+  const actualWeight = event?.actual_weight ?? payload?.actual_weight
+
+  if (courierCost !== undefined) updateData.courier_cost = Number(courierCost)
+  if (chargedWeight !== undefined) updateData.charged_weight = Number(chargedWeight)
+  if (volumetricWeight !== undefined) updateData.volumetric_weight = Number(volumetricWeight)
+  if (actualWeight !== undefined) updateData.actual_weight = Number(actualWeight)
+
+  await tx.transaction(async (innerTx) => {
+    await innerTx.update(b2c_orders).set(updateData).where(eq(b2c_orders.id, order.id))
+    await syncShopifyStatusForLocalOrder({ ...order, ...updateData }, innerTx).catch((err) => {
+      console.warn('Failed Shopify status sync for Ekart webhook:', err)
+    })
+
+    try {
+      await logTrackingEvent({
+        orderId: order.id,
+        userId: order.user_id,
+        awbNumber: order.awb_number,
+        courier: 'Ekart Logistics',
+        statusCode: internalStatus,
+        statusText,
+        location,
+        raw: payload,
+      })
+    } catch (err: any) {
+      console.error('Failed to log Ekart tracking event:', err)
+    }
+
+    if (internalStatus === 'booked' || internalStatus === 'pickup_initiated') {
+      try {
+        const [freshOrder] = await innerTx
+          .select()
+          .from(b2c_orders)
+          .where(eq(b2c_orders.id, order.id))
+
+        if (!freshOrder) return
+
+        let invoiceKey = freshOrder.invoice_link
+        let invoiceNumberToStore = freshOrder.invoice_number
+        let invoiceDateToStore = freshOrder.invoice_date
+        let invoiceAmountToStore = freshOrder.invoice_amount
+
+        if (!invoiceKey) {
+          const invoiceResult = await generateInvoiceForOrderWebhook(freshOrder, innerTx)
+          if (invoiceResult) {
+            invoiceKey = invoiceResult.key
+            invoiceNumberToStore = invoiceResult.invoiceNumber
+            invoiceDateToStore = invoiceResult.invoiceDate
+            invoiceAmountToStore = invoiceResult.invoiceAmount
+          }
+        }
+
+        await innerTx
+          .update(b2c_orders)
+          .set({
+            invoice_link: invoiceKey ?? undefined,
+            invoice_number: invoiceNumberToStore ?? undefined,
+            invoice_date: invoiceDateToStore ?? undefined,
+            invoice_amount: invoiceAmountToStore ?? undefined,
+            updated_at: new Date(),
+          })
+          .where(eq(b2c_orders.id, order.id))
+      } catch (err: any) {
+        console.error(`Ekart invoice flow error for ${order.order_number}:`, err)
+      }
+    }
+  })
+
+  if (['ndr', 'undelivered'].includes(statusLower)) {
+    try {
+      await recordNdrEvent({
+        orderId: order.id,
+        userId: order.user_id,
+        awbNumber: order.awb_number || undefined,
+        status: statusLower,
+        reason: remarks || null,
+        remarks: statusText || null,
+        attemptNo,
+        payload,
+      })
+      await createNotificationService({
+        targetRole: 'user',
+        userId: order.user_id,
+        title: 'Delivery attempt issue (Ekart)',
+        message: `Order ${order.order_number} marked as ${statusLower}.`,
+      })
+      await createNotificationService({
+        targetRole: 'admin',
+        title: 'NDR captured (Ekart)',
+        message: `User ${order.user_id} order ${order.order_number} status ${statusLower}`,
+      })
+    } catch (err) {
+      console.error('Failed to record NDR event (Ekart):', err)
+    }
+  }
+
+  if (statusLower.includes('rto')) {
+    try {
+      const rtoCharge = await applyRtoChargeOnce(tx, order, 'Ekart')
+      await recordRtoEvent({
+        orderId: order.id,
+        userId: order.user_id,
+        awbNumber: order.awb_number || undefined,
+        status: statusLower,
+        reason: remarks || null,
+        remarks: statusText || null,
+        rtoCharges: rtoCharge,
+        payload,
+      })
+      await createNotificationService({
+        targetRole: 'user',
+        userId: order.user_id,
+        title: 'RTO update (Ekart)',
+        message: `Order ${order.order_number} status ${statusLower}.`,
+      })
+      await createNotificationService({
+        targetRole: 'admin',
+        title: 'RTO event (Ekart)',
+        message: `User ${order.user_id} order ${order.order_number} ${statusLower}`,
+      })
+    } catch (err) {
+      console.error('Failed to record RTO event (Ekart):', err)
+    }
+  }
+
+  if (internalStatus === 'delivered' && order.order_type === 'cod') {
+    try {
+      const { remittance, created } = await createCodRemittance({
+        orderId: order.id,
+        orderType: 'b2c',
+        userId: order.user_id,
+        orderNumber: order.order_number,
+        awbNumber: order.awb_number || undefined,
+        courierPartner: 'Ekart Logistics',
+        codAmount: Number(order.order_amount ?? 0),
+        codCharges: Number(order.cod_charges ?? 0),
+        freightCharges: Number(order.freight_charges ?? order.shipping_charges ?? 0),
+        collectedAt: new Date(),
+      })
+
+      if (created) {
+        await createNotificationService({
+          targetRole: 'admin',
+          title: 'COD remittance created',
+          message: `Order ${order.order_number} (${order.awb_number || 'no AWB'}) created pending COD remittance of Rs.${Number(
+            remittance.remittableAmount || 0,
+          ).toFixed(2)}.`,
+        })
+      }
+    } catch (err) {
+      console.error(`Failed to create COD remittance for Ekart order ${order.order_number}:`, err)
     }
   }
 

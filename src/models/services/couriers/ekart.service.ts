@@ -203,6 +203,18 @@ export class EkartService {
     return Number(digits.slice(0, 6))
   }
 
+  private parseCoordinate(value: any, fallback = 0) {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : fallback
+  }
+
+  private buildGeo(location: any) {
+    return {
+      lat: this.parseCoordinate(location?.geo?.lat ?? location?.latitude ?? location?.lat, 0),
+      lon: this.parseCoordinate(location?.geo?.lon ?? location?.longitude ?? location?.lon, 0),
+    }
+  }
+
   private normalizeAlias(value: any) {
     return String(value ?? '')
       .trim()
@@ -241,7 +253,8 @@ export class EkartService {
       pincode,
       city,
       state,
-      country: 'India',
+      country: this.sanitizeText(location?.country, 'India'),
+      geo: this.buildGeo(location),
     }
   }
 
@@ -382,7 +395,9 @@ export class EkartService {
       address2: this.sanitizeText(payload?.pickup?.address_2),
       city: this.sanitizeText(payload?.pickup?.city),
       state: this.sanitizeText(payload?.pickup?.state),
+      country: this.sanitizeText(payload?.pickup?.country, 'India'),
       pincode: this.normalizePin(payload?.pickup?.pincode),
+      geo: this.buildGeo(payload?.pickup),
     }
 
     const dropContact = {
@@ -402,7 +417,9 @@ export class EkartService {
       address2: this.sanitizeText(payload?.rto?.address_2, pickupContact.address2),
       city: this.sanitizeText(payload?.rto?.city, pickupContact.city),
       state: this.sanitizeText(payload?.rto?.state, pickupContact.state),
+      country: this.sanitizeText(payload?.rto?.country, pickupContact.country),
       pincode: this.normalizePin(payload?.rto?.pincode || payload?.pickup?.pincode),
+      geo: this.buildGeo(payload?.rto ?? payload?.pickup),
     }
 
     const invoiceDate = this.getNormalizedInvoiceDate(payload)

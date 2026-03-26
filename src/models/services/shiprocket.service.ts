@@ -331,6 +331,8 @@ interface PickupWarehouseRecord {
   contactPhone?: string | null
   gstNumber?: string | null
   country?: string | null
+  latitude?: string | null
+  longitude?: string | null
 }
 
 async function fetchPickupWarehouseRecord(
@@ -354,6 +356,8 @@ async function fetchPickupWarehouseRecord(
       contactPhone: addresses.contactPhone,
       gstNumber: addresses.gstNumber,
       country: addresses.country,
+      latitude: addresses.latitude,
+      longitude: addresses.longitude,
     })
     .from(pickupAddresses)
     .innerJoin(addresses, eq(pickupAddresses.addressId, addresses.id))
@@ -473,6 +477,8 @@ function buildPickupFromWarehouse(
     name: warehouse.contactName || 'DelExpress',
     phone: warehouse.contactPhone || '',
     gst_number: previousPickup?.gst_number ?? warehouse.gstNumber ?? '',
+    latitude: warehouse.latitude ?? undefined,
+    longitude: warehouse.longitude ?? undefined,
     pickup_date: previousPickup?.pickup_date ?? fallbackDate,
     pickup_time: previousPickup?.pickup_time ?? fallbackTime,
   }
@@ -2157,6 +2163,8 @@ export interface ShipmentParams {
     pickup_date?: string
     pickup_time?: string
     addressNickname?: string
+    latitude?: string | number
+    longitude?: string | number
   }
   is_rto_different?: 'yes' | 'no'
   rto?: {
@@ -2170,6 +2178,8 @@ export interface ShipmentParams {
     pincode: string
     phone: string
     addressNickname?: string
+    latitude?: string | number
+    longitude?: string | number
   }
   company: { name?: string; gst?: string }
   pickup_location_alias?: string
@@ -2699,6 +2709,8 @@ export const createB2CShipmentService = async (
           contactName: addresses.contactName,
           contactPhone: addresses.contactPhone,
           gstNumber: addresses.gstNumber,
+          latitude: addresses.latitude,
+          longitude: addresses.longitude,
         })
         .from(pickupAddresses)
         .innerJoin(addresses, eq(pickupAddresses.addressId, addresses.id))
@@ -2717,6 +2729,8 @@ export const createB2CShipmentService = async (
           phone: pickup.phone || pickupRow.contactPhone || '',
           name: pickup.name || pickupRow.contactName || '',
           gst_number: pickup.gst_number || pickupRow.gstNumber || undefined,
+          latitude: pickup.latitude || pickupRow.latitude || undefined,
+          longitude: pickup.longitude || pickupRow.longitude || undefined,
           pickup_date: pickup.pickup_date,
           pickup_time: pickup.pickup_time,
         }

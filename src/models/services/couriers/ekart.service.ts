@@ -345,9 +345,11 @@ export class EkartService {
         const taxValue = Number.isFinite(directTaxValue)
           ? directTaxValue
           : Number((taxableAmount * (taxRate / 100)).toFixed(2))
+        const productName = this.sanitizeText(item?.name, 'Product')
 
         return {
-          name: this.sanitizeText(item?.name, 'Product'),
+          name: productName,
+          product_name: productName,
           sku: this.sanitizeText(item?.sku, 'SKU'),
           quantity: quantity > 0 ? quantity : 1,
           price,
@@ -360,6 +362,7 @@ export class EkartService {
     if (!normalizedItems.length) {
       normalizedItems.push({
         name: 'Package',
+        product_name: 'Package',
         sku: 'PKG',
         quantity: 1,
         price: this.toNumber(payload?.order_amount, 0),
